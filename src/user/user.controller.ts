@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Body, Delete, Req } from '@nestjs/common';
 import { UserService } from './user.service';
 import { Request } from 'express';
-import { CreateUserDto, LoginUserDto } from './dto';
+import { CreateUserDto, LoginPatientDto, LoginUserDto } from './dto';
 
 @Controller('user')
 export class UserController {
@@ -14,7 +14,12 @@ export class UserController {
 
   @Post('login')
   login(@Body() loginUserDto: LoginUserDto) {
-    return this.userService.login(loginUserDto);
+    return this.userService.loginUser(loginUserDto);
+  }
+
+  @Post('login-patient')
+  loginPatient(@Body() loginPatientDto: LoginPatientDto) {
+    return this.userService.loginPatient(loginPatientDto);
   }
 
   @Get('getUserById/:_id')

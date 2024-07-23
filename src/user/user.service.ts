@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { User } from './user.schema';
 import { Model } from 'mongoose';
 import {
   comparePassword,
@@ -8,8 +7,9 @@ import {
   generateUserToken,
   isEmpty,
   isEmail,
+  generateCode,
 } from 'src/utils/functions';
-import { CreateUserDto, LoginUserDto } from './dto';
+import { CreateUserDto, LoginPatientDto, LoginUserDto } from './dto';
 import {
   NotFoundException,
   UnsuccessfulLoginException,
@@ -17,14 +17,19 @@ import {
   ValueExistsException,
 } from 'src/utils/exceptions';
 import { ResponseStatus } from 'src/utils/types';
+import { User } from './entities/user.entity';
+import { Patient } from 'src/patient/entities/patient.entity';
 
 @Injectable()
 export class UserService {
-  constructor(@InjectModel(User.name) private userModel: Model<User>) {}
+  constructor(
+    @InjectModel(User.name) private userModel: Model<User>,
+    @InjectModel(Patient.name) private patientModel: Model<Patient>,
+  ) {}
 
   async create(createUserDto: CreateUserDto) {
     try {
-      const { name, email, password, type } = createUserDto;
+      const { firstname, lastname, email, phone } = createUserDto;
 
       const newUser = new User();
 
@@ -39,49 +44,114 @@ export class UserService {
         throw new UnsuccessfulRegistrationException('Invalid email address');
       }
 
-      const encryptedPassword = await encryptPassword(password);
+      if (!isEmpty(phone)) {
+        const phoneExists = await this.userModel.findOne({ phone });
+        if (phoneExists && phoneExists._id) {
+          throw new ValueExistsException(['phone']);
+        } else {
+          newUser.phone = phone;
+        }
+      } else {
+        throw new UnsuccessfulRegistrationException('Invalid email address');
+      }
 
-      newUser.name = name;
+      const createStaffCode = async () => {
+        const staffID = await generateCode('staff');
+        const user = await this.userModel.findOne({ staffID });
+        if (user) {
+          return createStaffCode();
+        }
+        return staffID;
+      };
+      const createPassword = async () => {
+        const temporaryPassword = await generateCode();
+        return temporaryPassword;
+      };
+
+      const generatedPassword = await createPassword();
+      const encryptedPassword = await encryptPassword(generatedPassword);
+
+      newUser.firstname = firstname;
       newUser.password = encryptedPassword;
-      newUser.type = type;
+      newUser.lastname = lastname;
+      newUser.staffID = await createStaffCode();
 
       const res = await this.userModel.create(newUser);
+
       if (res && res._id) {
-        return await this.login({ email: res.email, password });
+        const { password, ...userData } = res.toObject();
+        return {
+          status: ResponseStatus.SUCCESS,
+          data: userData,
+          temporaryPassword: generatedPassword,
+        };
       }
 
       throw new UnsuccessfulRegistrationException('user');
     } catch (error) {
-      console.log(error);
       return error;
     }
   }
 
-  async login(loginUserDto: LoginUserDto) {
+  async loginUser(loginUserDto: LoginUserDto) {
     try {
-      const { email, password } = loginUserDto;
-      const user = await this.userModel.findOne({
-        email,
-      });
-      if (isEmpty(user)) {
+      const { phone, password, staffID } = loginUserDto;
+      const user = await this.userModel.findOne({ staffID });
+      if (!user)
         throw new UnsuccessfulLoginException(
           'User not found',
           'USER_NOT_FOUND',
         );
-      }
 
-      const isPasswordCorrect = await comparePassword(password, user.password);
-
-      if (user._id && !isPasswordCorrect) {
+      const passwordIsCorrect = await comparePassword(password, user.password);
+      if (user?.phone === phone) {
+        if (passwordIsCorrect) {
+          const { password: hashedPassword, ...userData } = user.toObject();
+          return { data: userData, token: await generateUserToken(user._id) };
+        } else {
+          throw new UnsuccessfulLoginException(
+            'Incorrect Password',
+            'INCORRECT_PASSWORD',
+          );
+        }
+      } else {
         throw new UnsuccessfulLoginException(
-          'Incorrect Password',
-          'INCORRECT_PASSWORD',
+          'Incorrect Phone number',
+          'INCORRECT_PHONE_NUMBER',
         );
       }
+    } catch (error) {
+      return error;
+    }
+  }
 
-      const { password: hashedPassword, ...userData } = user.toObject();
+  async loginPatient(loginUserDto: LoginPatientDto) {
+    try {
+      const { phone, password, medPharmaCode } = loginUserDto;
+      const user = await this.patientModel.findOne({ medPharmaCode });
+      if (!user)
+        throw new UnsuccessfulLoginException(
+          'Patient not found',
+          'PATIENT_NOT_FOUND',
+        );
 
-      return { user: userData, token: await generateUserToken(user._id) };
+      const passwordIsCorrect = await comparePassword(password, user.password);
+      if (user?.phone === phone) {
+        if (passwordIsCorrect) {
+          const { password: hashedPassword, ...userData } = user.toObject();
+          return { data: userData, token: await generateUserToken(user._id) };
+        } else {
+          throw new UnsuccessfulLoginException(
+            'Incorrect Password',
+            'INCORRECT_PASSWORD',
+          );
+        }
+      } else {
+        throw new UnsuccessfulLoginException(
+          'Incorrect Phone number',
+          'INCORRECT_PHONE_NUMBER',
+        );
+      }
     } catch (error) {
       return error;
     }

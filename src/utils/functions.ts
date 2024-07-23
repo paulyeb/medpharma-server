@@ -2,6 +2,7 @@ import * as bcrypt from 'bcrypt';
 import { generateToken, verifyToken } from './token';
 import { USER_TOKEN_KEY } from './constants';
 import { isEmail as isEmail_ } from 'class-validator';
+import { v4 as uuidv4 } from 'uuid';
 
 export const encryptPassword = async (password: string) => {
   try {
@@ -39,4 +40,22 @@ export const generateUserToken = async (payload: any) => {
 
 export const verifyUserToken = async (token: string) => {
   return await verifyToken(token, USER_TOKEN_KEY);
+};
+
+export type UserType = 'staff' | 'patient';
+
+export const generateCode = async (type?: UserType) => {
+  try {
+    const code = await uuidv4().slice(0, 5).toString().toUpperCase();
+    switch (type) {
+      case 'patient':
+        return `MPH-${code}`;
+      case 'staff':
+        return `MHO-${code}`;
+      default:
+        return code;
+    }
+  } catch (error) {
+    return error;
+  }
 };
